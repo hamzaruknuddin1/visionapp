@@ -203,7 +203,7 @@ export default function Home() {
       <header className="header">
         <h1>Vision Narrator MVP</h1>
         <p className="sub">Live camera → calm AI narration</p>
-         <button className="btn" onClick={() => router.push("/")}>
+         <button className="btn" onClick={() => router.push("/page1")}>
           Switch to Q/A
         </button>
       </header>
