@@ -9,22 +9,7 @@ const openai = new OpenAI({
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-
-    const imageDataUrl = body?.imageDataUrl;
-    const mode = body?.mode ?? "quick";
-
-    if (!imageDataUrl || !imageDataUrl.startsWith("data:image/")) {
-      return NextResponse.json(
-        { error: "Invalid image data" },
-        { status: 400 }
-      );
-    }
-
-    const prompt =
-      mode === "detailed"
-        ? "Describe what is happening in this image in two short sentences. Do not guess identities."
-        : "Describe what is happening in this image in one short sentence. Do not guess identities.";
+    const { imageDataUrl } = await req.json();
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -32,23 +17,25 @@ export async function POST(req: NextRequest) {
         {
           role: "user",
           content: [
-            { type: "text", text: prompt },
+            {
+              type: "text",
+              text:
+                "Describe only the most important visible object or action in one calm, short sentence. " +
+                "If the scene has not meaningfully changed, describe it similarly. " +
+                "Avoid adding new details unless clearly different.",
+            },
             { type: "image_url", image_url: { url: imageDataUrl } },
           ],
         },
       ],
-      max_tokens: mode === "detailed" ? 80 : 40,
+      max_tokens: 50,
     });
 
-    const caption =
-      completion.choices[0]?.message?.content ?? "Unable to describe image.";
-
-    return NextResponse.json({ caption });
-  } catch (err: any) {
-    console.error("VISION ERROR:", err);
-    return NextResponse.json(
-      { error: "Server error while analyzing image." },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      caption: completion.choices[0].message.content,
+    });
+  } catch (e: any) {
+    console.error(e);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
