@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 type VisionMode = "quick" | "detailed";
 
-const DEFAULT_INTERVAL = 2500;
-const MIN_DISPLAY_MS = 3000;
+const DEFAULT_INTERVAL = 5000;
+const MIN_DISPLAY_MS = 5500;
 const SIMILARITY_IGNORE = 0.85;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -225,17 +225,18 @@ export default function Home() {
               </select>
             </label>
 
-            <label className="label">
-              Interval
-              <select
-                className="select"
-                value={intervalMs}
-                onChange={(e) => setIntervalMs(Number(e.target.value))}
-              >
-                <option value={2500}>2.5s (Calm)</option>
-                <option value={3500}>3.5s (Very Calm)</option>
-              </select>
-            </label>
+           <label className="label">
+            Interval
+            <select
+              className="select"
+              value={intervalMs}
+              onChange={(e) => setIntervalMs(Number(e.target.value))}
+            >
+              <option value={5000}>5s (Calm)</option>
+              <option value={7000}>7s (Very Calm)</option>
+            </select>
+          </label>
+
           </div>
 
           <label className="toggle">
