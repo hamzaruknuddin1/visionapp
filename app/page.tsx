@@ -44,22 +44,60 @@ export default function Home() {
   }, []);
 
   async function startCamera() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Camera not supported");
-    }
+  setError(null);
 
-    const stream = await navigator.mediaDevices.getUserMedia({
+  if (!navigator?.mediaDevices?.getUserMedia) {
+    throw new Error("Camera not supported");
+  }
+
+  const video = videoRef.current;
+  if (!video) throw new Error("Video element not ready");
+
+  let stream: MediaStream | null = null;
+
+  // 1️⃣ Try HARD forcing back camera (phones)
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { exact: "environment" }, // 👈 FORCE BACK CAMERA
+      },
+      audio: false,
+    });
+  } catch (err) {
+    console.warn("Back camera exact failed, falling back…", err);
+  }
+
+  // 2️⃣ Fallback: ideal environment (still prefers back)
+  if (!stream) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+        },
+        audio: false,
+      });
+    } catch (err) {
+      console.warn("Back camera ideal failed, falling back…", err);
+    }
+  }
+
+  // 3️⃣ Final fallback: ANY camera (laptop / older browsers)
+  if (!stream) {
+    stream = await navigator.mediaDevices.getUserMedia({
       video: true,
       audio: false,
     });
-
-    const video = videoRef.current!;
-    video.srcObject = stream;
-    video.setAttribute("playsinline", "true");
-
-    await new Promise<void>((res) => (video.onloadedmetadata = () => res()));
-    await video.play();
   }
+
+  video.srcObject = stream;
+  video.setAttribute("playsinline", "true"); // iOS Safari fix
+
+  await new Promise<void>((resolve) => {
+    video.onloadedmetadata = () => resolve();
+  });
+
+  await video.play();
+}
 
   function stopCamera() {
     const stream = videoRef.current?.srcObject as MediaStream | null;
