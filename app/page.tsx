@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 type VisionMode = "quick" | "detailed";
 
-const DEFAULT_INTERVAL = 5000;
-const MIN_DISPLAY_MS = 5500;
+const DEFAULT_INTERVAL = 5000; // 5s calm
+const MIN_DISPLAY_MS = 3000;
 const SIMILARITY_IGNORE = 0.85;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -29,6 +29,10 @@ export default function Home() {
 
   const runningRef = useRef(false);
   const inFlightRef = useRef(false);
+
+  // 🔑 NEW: lag-mitigation refs
+  const abortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
 
   const lastCaptionRef = useRef("");
   const lastUpdateTimeRef = useRef(0);
@@ -76,6 +80,7 @@ export default function Home() {
   }
 
   function stopCamera() {
+    abortRef.current?.abort();
     const stream = videoRef.current?.srcObject as MediaStream | null;
     stream?.getTracks().forEach((t) => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -104,16 +109,16 @@ export default function Home() {
     return c.toDataURL("image/jpeg", 0.5);
   }
 
-  // ---------------- APPLY LOGIC ----------------
+  // ---------------- APPLY ----------------
   function applyCaption(newCaption: string) {
     const now = Date.now();
 
-    // ⛔ Minimum display time
+    // ⛔ minimum display time
     if (now - lastUpdateTimeRef.current < MIN_DISPLAY_MS) return;
 
     const sim = similarity(newCaption, lastCaptionRef.current);
 
-    // ⛔ Scene effectively unchanged
+    // ⛔ scene unchanged
     if (sim > SIMILARITY_IGNORE) return;
 
     lastCaptionRef.current = newCaption;
@@ -126,10 +131,15 @@ export default function Home() {
     }
   }
 
-  // ---------------- ANALYZE ----------------
+  // ---------------- ANALYZE (LATEST-ONLY) ----------------
   async function analyzeOnce() {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
+    // cancel previous request
+    abortRef.current?.abort();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const requestId = ++requestIdRef.current;
 
     try {
       const img = captureFrame();
@@ -139,16 +149,21 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageDataUrl: img, mode }),
+        signal: controller.signal,
       });
 
-      if (!res.ok) throw new Error("Vision API error");
+      if (!res.ok) return;
 
-      const { caption } = await res.json();
-      if (caption) applyCaption(caption);
+      const data = await res.json();
+
+      // 🔒 ignore stale responses
+      if (requestId !== requestIdRef.current) return;
+
+      if (data?.caption) applyCaption(data.caption);
     } catch (e: any) {
-      setError(e.message);
-    } finally {
-      inFlightRef.current = false;
+      if (e.name !== "AbortError") {
+        setError(e.message);
+      }
     }
   }
 
@@ -225,18 +240,17 @@ export default function Home() {
               </select>
             </label>
 
-           <label className="label">
-            Interval
-            <select
-              className="select"
-              value={intervalMs}
-              onChange={(e) => setIntervalMs(Number(e.target.value))}
-            >
-              <option value={5000}>5s (Calm)</option>
-              <option value={7000}>7s (Very Calm)</option>
-            </select>
-          </label>
-
+            <label className="label">
+              Interval
+              <select
+                className="select"
+                value={intervalMs}
+                onChange={(e) => setIntervalMs(Number(e.target.value))}
+              >
+                <option value={5000}>5s (Calm)</option>
+                <option value={7000}>7s (Very Calm)</option>
+              </select>
+            </label>
           </div>
 
           <label className="toggle">
