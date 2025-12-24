@@ -3,45 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type VisionMode = "quick" | "detailed";
-
-const DEFAULT_INTERVAL = 5000; // 5s calm
+const DEFAULT_INTERVAL = 5000; // calm
 const MIN_DISPLAY_MS = 3000;
-const SIMILARITY_IGNORE = 0.85;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function normalizeText(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function similarity(a: string, b: string) {
-  const A = new Set(normalizeText(a).split(" ").filter(Boolean));
-  const B = new Set(normalizeText(b).split(" ").filter(Boolean));
-  if (!A.size || !B.size) return 0;
-  let i = 0;
-  A.forEach((w) => B.has(w) && i++);
-  return i / (A.size + B.size - i);
-}
-
-export default function Home() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export default function Page1() {
   const router = useRouter();
 
-  const runningRef = useRef(false);
-  const inFlightRef = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // 🔑 NEW: lag-mitigation refs
+  const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
-  const lastCaptionRef = useRef("");
   const lastUpdateTimeRef = useRef(0);
 
-  const [caption, setCaption] = useState("Tap Start to begin.");
+  const [answer, setAnswer] = useState("Point the camera at a question.");
   const [isRunning, setIsRunning] = useState(false);
-  const [mode, setMode] = useState<VisionMode>("quick");
   const [intervalMs, setIntervalMs] = useState(DEFAULT_INTERVAL);
   const [speak, setSpeak] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +36,6 @@ export default function Home() {
 
     let stream: MediaStream | null = null;
 
-    // Force back camera on phones
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { exact: "environment" } },
@@ -112,32 +91,22 @@ export default function Home() {
   }
 
   // ---------------- APPLY ----------------
-  function applyCaption(newCaption: string) {
+  function applyAnswer(text: string) {
     const now = Date.now();
-
-    // ⛔ minimum display time
     if (now - lastUpdateTimeRef.current < MIN_DISPLAY_MS) return;
 
-    const sim = similarity(newCaption, lastCaptionRef.current);
-
-    // ⛔ scene unchanged
-    if (sim > SIMILARITY_IGNORE) return;
-
-    lastCaptionRef.current = newCaption;
     lastUpdateTimeRef.current = now;
-    setCaption(newCaption);
+    setAnswer(text);
 
     if (speak && "speechSynthesis" in window) {
       speechSynthesis.cancel();
-      speechSynthesis.speak(new SpeechSynthesisUtterance(newCaption));
+      speechSynthesis.speak(new SpeechSynthesisUtterance(text));
     }
   }
 
-  // ---------------- ANALYZE (LATEST-ONLY) ----------------
+  // ---------------- ANALYZE (LATEST ONLY) ----------------
   async function analyzeOnce() {
-    // cancel previous request
     abortRef.current?.abort();
-
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -147,25 +116,21 @@ export default function Home() {
       const img = captureFrame();
       if (!img) return;
 
-      const res = await fetch("/api/analyze", {
+      const res = await fetch("/api/routes1", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl: img, mode }),
+        body: JSON.stringify({ imageDataUrl: img }),
         signal: controller.signal,
       });
 
       if (!res.ok) return;
 
       const data = await res.json();
-
-      // 🔒 ignore stale responses
       if (requestId !== requestIdRef.current) return;
 
-      if (data?.caption) applyCaption(data.caption);
+      if (data?.answer) applyAnswer(data.answer);
     } catch (e: any) {
-      if (e.name !== "AbortError") {
-        setError(e.message);
-      }
+      if (e.name !== "AbortError") setError(e.message);
     }
   }
 
@@ -181,7 +146,7 @@ export default function Home() {
       await startCamera();
       runningRef.current = true;
       setIsRunning(true);
-      setCaption("Looking…");
+      setAnswer("Reading question…");
       setError(null);
       loop();
     } catch (e: any) {
@@ -194,20 +159,22 @@ export default function Home() {
     setIsRunning(false);
     stopCamera();
     speechSynthesis?.cancel();
-    setCaption("Stopped.");
+    setAnswer("Stopped.");
   }
 
-  // ---------------- UI (UNCHANGED CLASSES) ----------------
+  // ---------------- UI (SAME CLASSES) ----------------
   return (
     <main className="container">
       <header className="header">
-        <h1>Vision Narrator MVP</h1>
-        <p className="sub">Live camera → calm AI narration</p>
-         <button className="btn" onClick={() => router.push("/")}>
-          Switch to Q/A
+        <h1>Vision Question Solver</h1>
+        <p className="sub">Camera → read → answer</p>
+
+        {/* TOP SWITCH */}
+        <button className="btn" onClick={() => router.push("/")}>
+          Switch to Scene Narrator
         </button>
       </header>
-      
+
       <section className="card">
         <div className="videoWrap">
           <video ref={videoRef} className="video" muted playsInline />
@@ -216,8 +183,8 @@ export default function Home() {
         <canvas ref={canvasRef} className="hidden" />
 
         <div className="caption">
-          <div className="captionLabel">Live caption</div>
-          <div className="captionText">{caption}</div>
+          <div className="captionLabel">Answer</div>
+          <div className="captionText">{answer}</div>
           {error && <div className="error">{error}</div>}
         </div>
 
@@ -233,18 +200,6 @@ export default function Home() {
           )}
 
           <div className="row">
-            <label className="label">
-              Mode
-              <select
-                className="select"
-                value={mode}
-                onChange={(e) => setMode(e.target.value as VisionMode)}
-              >
-                <option value="quick">Quick</option>
-                <option value="detailed">Detailed</option>
-              </select>
-            </label>
-
             <label className="label">
               Interval
               <select
@@ -264,7 +219,7 @@ export default function Home() {
               checked={speak}
               onChange={(e) => setSpeak(e.target.checked)}
             />
-            Speak captions
+            Speak answers
           </label>
         </div>
       </section>
